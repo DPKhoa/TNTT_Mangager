@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: tntt_Manager
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tntt_manager
+    username: postgres
+    password: "123456"
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: TnttManagerHikariPool
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 20000 # 20s — thời gian tối đa chờ lấy connection từ pool
+      idle-timeout: 300000 # 5 phút — thời gian tối đa connection nhàn rỗi trong pool
+      max-lifetime: 1800000 # 30 phút — thời gian sống tối đa của một connection
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+server:
+  port: 8080
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE # log giá trị tham số của các câu query
