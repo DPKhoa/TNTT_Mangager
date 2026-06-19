@@ -1,6 +1,6 @@
 # TNTT Manager — Hệ thống quản lý Thiếu Nhi Thánh Thể
 
-Ứng dụng REST API backend để quản lý hồ sơ **Huynh Trưởng** (Leader) và **Thiếu Nhi** (Member) trong một đoàn Thiếu Nhi Thánh Thể. Xây dựng bằng **Spring Boot 4.1.0** + **Java 21** + **PostgreSQL**.
+Ứng dụng REST API backend để quản lý **Huynh Trưởng**, **Thiếu Nhi**, **Lớp học** và **Điểm danh** trong một đoàn Thiếu Nhi Thánh Thể. Xây dựng bằng **Spring Boot 4.1.0** + **Java 21** + **PostgreSQL**.
 
 ---
 
@@ -16,6 +16,7 @@
 - [Cấu hình Database](#cấu-hình-database)
 - [Xử lý lỗi toàn cục](#xử-lý-lỗi-toàn-cục)
 - [Ghi chú kỹ thuật quan trọng](#ghi-chú-kỹ-thuật-quan-trọng)
+- [Lịch sử đổi tên (Vietnamese → English)](#lịch-sử-đổi-tên-vietnamese--english)
 
 ---
 
@@ -42,15 +43,15 @@
 - Maven 3.8+
 - PostgreSQL 14+
 
-### Bước 1 — Tạo database và kích hoạt extension
+### Bước 1 — Tạo database, kích hoạt extension và tạo PostgreSQL Enum Type
 
 Mở psql hoặc pgAdmin và chạy:
 
 ```sql
 CREATE DATABASE tntt_manager;
+\c tntt_manager
 
 -- Bắt buộc: extension để tìm kiếm không dấu tiếng Việt
-\c tntt_manager
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
 -- Tùy chọn nhưng nên có: tăng tốc tìm kiếm LIKE với GIN index
@@ -58,6 +59,33 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ```
 
 > **Tại sao cần `unaccent`?** PostgreSQL mặc định so sánh chuỗi theo byte, tức là "Hoa" và "Hòa" là khác nhau. Extension `unaccent` giúp bỏ dấu trước khi so sánh, cho phép tìm "hoa" ra được "Hòa", "Hóa", "Hoà"...
+
+**Bắt buộc: Tạo các PostgreSQL Custom Enum Type trước khi khởi động app**
+
+Dự án dùng `@JdbcTypeCode(SqlTypes.NAMED_ENUM)` để ánh xạ Enum Java sang PostgreSQL custom type. Hibernate **không tự tạo** các type này — phải tạo thủ công một lần duy nhất:
+
+```sql
+-- Enum cho Leader
+CREATE TYPE gender          AS ENUM ('MALE', 'FEMALE');
+CREATE TYPE leaderlevel     AS ENUM ('PROBATIONARY_LEADER', 'CERTIFIED_LEADER');
+CREATE TYPE leaderstatus    AS ENUM ('ACTIVE', 'ON_LEAVE', 'INACTIVE');
+CREATE TYPE leaderposition  AS ENUM (
+    'PARISH_CHIEF', 'PARISH_DEPUTY_EXTERNAL', 'PARISH_DEPUTY_INTERNAL',
+    'SECRETARY', 'TREASURER', 'SPECIALIST',
+    'BRANCH_LEADER', 'BRANCH_DEPUTY', 'CLASS_LEADER',
+    'ASSISTANT_SUPERVISOR', 'ASSISTANT_AIDE', 'GROUP_LEADER'
+);
+
+-- Enum cho Classroom / ClassAssignment
+CREATE TYPE branch          AS ENUM ('SOLDIER', 'INFANT', 'JUNIOR', 'SENIOR', 'ADVENTURER', 'JUNIOR_LEADER');
+CREATE TYPE assignmentrole  AS ENUM ('MAIN_TEACHER', 'ASSISTANT_TEACHER');
+
+-- Enum cho AttendanceRecord
+CREATE TYPE attendancestatus AS ENUM ('PRESENT', 'EXCUSED_ABSENCE', 'UNEXCUSED_ABSENCE');
+```
+
+> **Quy tắc đặt tên:** Tên PostgreSQL type = tên class Java Enum viết thường, không dấu gạch dưới.
+> Ví dụ: `LeaderLevel` → `leaderlevel`, `AssignmentRole` → `assignmentrole`.
 
 ### Bước 2 — Cấu hình kết nối
 
@@ -94,7 +122,12 @@ src/main/java/com/example/tntt_Manager/
 │   ├── Member.java                     # Thiếu Nhi
 │   ├── Guardian.java                   # Phụ huynh / người giám hộ
 │   ├── User.java                       # Tài khoản đăng nhập hệ thống
-│   └── enums/                          # Các kiểu liệt kê dùng trong entity
+│   ├── Classroom.java                  # Lớp học (lop_hoc)
+│   ├── ClassEnrollment.java            # Phân lớp thiếu nhi (phan_lop)
+│   ├── ClassAssignment.java            # Phân công huynh trưởng (phan_cong_lop)
+│   ├── AttendanceSession.java          # Buổi điểm danh (buoi_diem_danh)
+│   ├── AttendanceRecord.java           # Chi tiết điểm danh (chi_tiet_diem_danh)
+│   └── enums/
 │       ├── Gender.java
 │       ├── Branch.java
 │       ├── LeaderLevel.java
@@ -103,36 +136,58 @@ src/main/java/com/example/tntt_Manager/
 │       ├── MemberOrigin.java
 │       ├── MemberStatus.java
 │       ├── RelationshipType.java
-│       └── SystemRole.java
+│       ├── SystemRole.java
+│       ├── AssignmentRole.java         # Vai trò HT trong lớp (trưởng lớp / phụ tá)
+│       └── AttendanceStatus.java       # Trạng thái điểm danh
 │
-├── repository/                         # Tầng Repository — giao tiếp với DB qua JPA
+├── repository/
 │   ├── LeaderRepository.java
 │   ├── MemberRepository.java
-│   └── UserRepository.java
+│   ├── UserRepository.java
+│   ├── ClassroomRepository.java
+│   ├── ClassEnrollmentRepository.java
+│   ├── ClassAssignmentRepository.java
+│   ├── AttendanceSessionRepository.java
+│   └── AttendanceRecordRepository.java
 │
-├── dto/                                # Tầng DTO — dữ liệu vào/ra qua API
-│   ├── request/                        # Nhận dữ liệu từ client (POST/PUT body)
+├── dto/
+│   ├── request/
 │   │   ├── LeaderRequestDTO.java
 │   │   ├── MemberRequestDTO.java
 │   │   ├── GuardianRequestDTO.java
-│   │   └── LoginRequestDTO.java
-│   └── response/                       # Trả dữ liệu về client (GET response)
+│   │   ├── LoginRequestDTO.java
+│   │   ├── ClassroomRequestDTO.java
+│   │   ├── EnrollmentRequestDTO.java
+│   │   ├── AttendanceSessionRequestDTO.java
+│   │   ├── AttendanceRecordSubmitDTO.java
+│   │   └── BulkAttendanceSubmitDTO.java
+│   └── response/
 │       ├── LeaderResponseDTO.java
 │       ├── MemberResponseDTO.java
-│       └── GuardianResponseDTO.java
+│       ├── GuardianResponseDTO.java
+│       ├── ClassroomResponseDTO.java
+│       ├── ClassEnrollmentResponseDTO.java
+│       ├── AttendanceSessionResponseDTO.java
+│       └── AttendanceReportResponseDTO.java
 │
-├── service/                            # Tầng Service — chứa logic nghiệp vụ
-│   ├── LeaderService.java              # Interface định nghĩa hợp đồng
+├── service/
+│   ├── LeaderService.java
 │   ├── MemberService.java
-│   └── impl/                           # Lớp triển khai cụ thể
+│   ├── ClassroomService.java
+│   ├── AttendanceService.java
+│   └── impl/
 │       ├── LeaderServiceImpl.java
-│       └── MemberServiceImpl.java
+│       ├── MemberServiceImpl.java
+│       ├── ClassroomServiceImpl.java
+│       └── AttendanceServiceImpl.java
 │
-├── controller/                         # Tầng Controller — nhận HTTP request, trả response
+├── controller/
 │   ├── LeaderController.java
-│   └── MemberController.java
+│   ├── MemberController.java
+│   ├── ClassroomController.java
+│   └── AttendanceController.java
 │
-└── exception/                          # Xử lý lỗi tập trung
+└── exception/
     ├── ResourceNotFoundException.java
     ├── ErrorResponse.java
     └── GlobalExceptionHandler.java
@@ -223,13 +278,69 @@ Mỗi thiếu nhi có thể có **nhiều** phụ huynh. Quan hệ `ManyToOne` t
 
 Mỗi `User` liên kết `OneToOne` với một `Leader`. Một huynh trưởng có thể có (hoặc chưa có) tài khoản đăng nhập.
 
+### Classroom (Lớp học) — bảng `lop_hoc`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | UUID | Khóa chính, tự sinh |
+| `ten_lop` | VARCHAR | Tên lớp |
+| `nam_hoc` | VARCHAR | Năm học (VD: "2024-2025") |
+| `nganh` | ENUM `branch` | Ngành sinh hoạt của lớp |
+| `createdat` | TIMESTAMPTZ | Tự điền khi tạo mới |
+| `updatedat` | TIMESTAMPTZ | Tự cập nhật khi sửa |
+
+### ClassEnrollment (Phân lớp) — bảng `phan_lop`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | UUID | Khóa chính, tự sinh |
+| `student_id` | UUID (FK) | Trỏ về bảng `members` |
+| `lop_hoc_id` | UUID (FK) | Trỏ về bảng `lop_hoc` |
+| `ngay_phan_lop` | DATE | Ngày phân lớp |
+
+### ClassAssignment (Phân công HT) — bảng `phan_cong_lop`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | UUID | Khóa chính, tự sinh |
+| `huynh_truong_id` | UUID (FK) | Trỏ về bảng `leader` |
+| `lop_hoc_id` | UUID (FK) | Trỏ về bảng `lop_hoc` |
+| `vai_tro` | ENUM `assignmentrole` | Trưởng lớp hoặc Phụ tá |
+| `ngay_phan_cong` | DATE | Ngày phân công |
+
+### AttendanceSession (Buổi điểm danh) — bảng `buoi_diem_danh`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | UUID | Khóa chính, tự sinh |
+| `ngay_diem_danh` | DATE | Ngày tổ chức buổi sinh hoạt |
+| `ghi_chu` | VARCHAR | Mô tả buổi học (nullable) |
+| `lop_hoc_id` | UUID (FK) | Trỏ về bảng `lop_hoc` |
+| `createdat` | TIMESTAMPTZ | Tự điền khi tạo mới |
+| `updatedat` | TIMESTAMPTZ | Tự cập nhật khi sửa |
+
+### AttendanceRecord (Chi tiết điểm danh) — bảng `chi_tiet_diem_danh`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | UUID | Khóa chính, tự sinh |
+| `buoi_diem_danh_id` | UUID (FK) | Trỏ về bảng `buoi_diem_danh` |
+| `thieu_nhi_id` | UUID (FK) | Trỏ về bảng `members` |
+| `trang_thai` | ENUM `attendancestatus` | Có mặt / Vắng phép / Vắng không phép |
+| `ghi_chu_rieng` | VARCHAR | Ghi chú riêng cho học sinh (nullable) |
+
 ### Quan hệ giữa các Entity
 
 ```
 User ──(1:1)──► Leader
-
-Member ──(1:N)──► Guardian
-   (một thiếu nhi có thể có nhiều phụ huynh)
+                  │
+                  └──(1:N)──► ClassAssignment ◄──(N:1)── Classroom
+                                                               │
+Member ──(1:N)──► Guardian           ClassEnrollment ◄──(N:1)─┘
+  │                                       ▲
+  └──(1:N)──► ClassEnrollment ────────────┘
+  │
+  └──(1:N)──► AttendanceRecord ◄──(N:1)── AttendanceSession ──(N:1)──► Classroom
 ```
 
 ---
@@ -306,6 +417,19 @@ Member ──(1:N)──► Guardian
 | `CLASS_LEADER` | Trưởng lớp |
 | `GROUP_LEADER` | Trưởng nhóm |
 | `JUNIOR_LEADER` | Dự trưởng |
+
+### AssignmentRole (Vai trò HT trong lớp)
+| Giá trị | Ý nghĩa |
+|---|---|
+| `MAIN_TEACHER` | Trưởng lớp |
+| `ASSISTANT_TEACHER` | Phó lớp / Phụ tá |
+
+### AttendanceStatus (Trạng thái điểm danh)
+| Giá trị | Ý nghĩa |
+|---|---|
+| `PRESENT` | Có mặt |
+| `EXCUSED_ABSENCE` | Vắng có phép |
+| `UNEXCUSED_ABSENCE` | Vắng không phép |
 
 ---
 
@@ -393,6 +517,78 @@ DELETE /api/v1/members/{id}
 ```
 POST /api/v1/members/{memberId}/guardians
 Content-Type: application/json
+```
+
+---
+
+### Lớp học — `/api/v1/classrooms`
+
+#### Tạo lớp học mới
+```
+POST /api/v1/classrooms
+Content-Type: application/json
+
+{
+  "className": "Lớp Têrêxa",
+  "academicYear": "2024-2025",
+  "division": "JUNIOR"
+}
+```
+
+#### Lấy danh sách lớp theo năm học
+```
+GET /api/v1/classrooms?year=2024-2025
+```
+
+#### Xếp một thiếu nhi vào lớp
+```
+POST /api/v1/classrooms/enroll
+Content-Type: application/json
+
+{
+  "memberId": "uuid-của-thiếu-nhi",
+  "classroomId": "uuid-của-lớp-học",
+  "enrollmentDate": "2024-09-01"
+}
+```
+> `enrollmentDate` là tùy chọn — mặc định là ngày hôm nay nếu không truyền.
+
+---
+
+### Điểm danh — `/api/v1/attendance`
+
+#### Tạo buổi điểm danh mới cho một lớp
+```
+POST /api/v1/attendance/session
+Content-Type: application/json
+
+{
+  "classroomId": "uuid-của-lớp-học",
+  "sessionDate": "2024-12-01",
+  "description": "Buổi sinh hoạt tháng 12"
+}
+```
+
+#### Nộp bảng điểm danh cả lớp
+```
+POST /api/v1/attendance/submit
+Content-Type: application/json
+
+{
+  "sessionId": "uuid-của-buổi-điểm-danh",
+  "records": [
+    { "studentId": "uuid-1", "status": "PRESENT",            "remarks": null },
+    { "studentId": "uuid-2", "status": "EXCUSED_ABSENCE",    "remarks": "Báo phép qua điện thoại" },
+    { "studentId": "uuid-3", "status": "UNEXCUSED_ABSENCE",  "remarks": null }
+  ]
+}
+```
+> Có thể nộp lại nhiều lần — hệ thống tự xóa dữ liệu cũ và lưu mới.  
+> Response: HTTP `204 No Content`.
+
+#### Xem kết quả điểm danh của một buổi
+```
+GET /api/v1/attendance/session/{sessionId}
 ```
 
 ---
@@ -531,6 +727,41 @@ private UUID id;
 - Tránh lộ thông tin (client không đoán được `id=1, 2, 3...` để dò dẫm hệ thống)
 - Cho phép tạo ID ở phía ứng dụng mà không cần roundtrip DB
 - Phù hợp kiến trúc phân tán nếu sau này mở rộng nhiều server
+
+### 6. PostgreSQL Custom Enum Type và @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+
+Các enum dùng `@JdbcTypeCode(SqlTypes.NAMED_ENUM)` yêu cầu PostgreSQL phải có **custom type** tương ứng tồn tại sẵn. Hibernate `ddl-auto: update` **không tự tạo** các type này.
+
+```java
+// Entity sử dụng NAMED_ENUM
+@Enumerated(EnumType.STRING)
+@JdbcTypeCode(SqlTypes.NAMED_ENUM)        // ← yêu cầu type "branch" tồn tại trong PostgreSQL
+@Column(name = "nganh", nullable = false)
+private Branch division;
+```
+
+Nếu type chưa được tạo, Hibernate sẽ **không tạo cột đó** khi khởi động. INSERT/SELECT sau đó sẽ báo lỗi `column does not exist`. Fix: tạo thủ công theo hướng dẫn ở Bước 1.
+
+### 7. Chiến lược "xóa rồi lưu lại" trong submitAttendance
+
+```
+Nộp điểm danh lần 1 → lưu N record vào DB
+Phát hiện nhầm → nộp lại lần 2
+→ deleteBySessionId()  xóa toàn bộ N record cũ
+→ saveAll()            lưu N record mới chính xác
+```
+
+Đảm bảo idempotency: nộp bao nhiêu lần kết quả cuối cùng luôn là lần nộp gần nhất.
+
+### 8. @Valid lồng nhau trong List
+
+```java
+@Valid                              // ← bắt buộc phải có để validation đi sâu vào List
+@NotEmpty
+private List<AttendanceRecordSubmitDTO> records;
+```
+
+Nếu thiếu `@Valid` trên field List, các annotation như `@NotNull` bên trong từng phần tử sẽ bị bỏ qua hoàn toàn.
 
 ---
 
