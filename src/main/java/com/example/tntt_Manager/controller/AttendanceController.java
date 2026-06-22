@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -20,7 +21,7 @@ public class AttendanceController {
 
     private final AttendanceService attendanceService;
 
-    // POST /api/v1/attendance/session — Tạo buổi điểm danh mới cho một lớp
+    @PreAuthorize("hasAnyRole('ADMIN', 'EXECUTIVE_COMMITTEE', 'BRANCH_LEADER', 'CLASS_LEADER', 'GROUP_LEADER')")
     @PostMapping("/session")
     public ResponseEntity<AttendanceSessionResponseDTO> createSession(
             @Valid @RequestBody AttendanceSessionRequestDTO dto) {
@@ -29,7 +30,7 @@ public class AttendanceController {
                 .body(attendanceService.createSession(dto));
     }
 
-    // POST /api/v1/attendance/submit — Nộp bảng điểm danh cả lớp (có thể nộp lại nhiều lần)
+    @PreAuthorize("hasAnyRole('ADMIN', 'EXECUTIVE_COMMITTEE', 'BRANCH_LEADER', 'CLASS_LEADER', 'GROUP_LEADER')")
     @PostMapping("/submit")
     public ResponseEntity<Void> submitAttendance(
             @Valid @RequestBody BulkAttendanceSubmitDTO dto) {
@@ -38,7 +39,6 @@ public class AttendanceController {
         return ResponseEntity.noContent().build();
     }
 
-    // GET /api/v1/attendance/session/{sessionId} — Xem kết quả điểm danh của một buổi
     @GetMapping("/session/{sessionId}")
     public ResponseEntity<AttendanceReportResponseDTO> getSessionReport(
             @PathVariable UUID sessionId) {

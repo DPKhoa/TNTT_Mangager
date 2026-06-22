@@ -11,6 +11,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -41,6 +42,7 @@ public class LeaderController {
         return ResponseEntity.ok(leaderService.searchLeaders(keyword, pageable));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'EXECUTIVE_COMMITTEE')")
     @PostMapping
     public ResponseEntity<LeaderResponseDTO> createLeader(
             @Valid @RequestBody LeaderRequestDTO dto) {
@@ -48,6 +50,7 @@ public class LeaderController {
         return ResponseEntity.status(HttpStatus.CREATED).body(leaderService.createLeader(dto));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'EXECUTIVE_COMMITTEE')")
     @PutMapping("/{id}")
     public ResponseEntity<LeaderResponseDTO> updateLeader(
             @PathVariable UUID id,
@@ -56,6 +59,7 @@ public class LeaderController {
         return ResponseEntity.ok(leaderService.updateLeader(id, dto));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'EXECUTIVE_COMMITTEE')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteLeader(@PathVariable UUID id) {
         leaderService.deleteLeader(id);

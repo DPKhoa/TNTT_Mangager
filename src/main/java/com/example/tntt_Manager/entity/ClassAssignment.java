@@ -3,9 +3,7 @@ package com.example.tntt_Manager.entity;
 import com.example.tntt_Manager.entity.enums.AssignmentRole;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
-import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDate;
 import java.util.UUID;
@@ -38,7 +36,7 @@ public class ClassAssignment {
     private Classroom classroom;
 
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+
     @Column(name = "vai_tro", nullable = false)
     private AssignmentRole role;
 

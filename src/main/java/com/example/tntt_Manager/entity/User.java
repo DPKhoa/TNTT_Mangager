@@ -3,9 +3,7 @@ package com.example.tntt_Manager.entity;
 import com.example.tntt_Manager.entity.enums.SystemRole;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
-import org.hibernate.type.SqlTypes;
 
 import java.util.UUID;
 
@@ -31,7 +29,7 @@ public class User {
     private String passwordHash;
 
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+
     @Column(name = "role", nullable = false)
     private SystemRole role;
 

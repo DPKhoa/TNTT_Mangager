@@ -7,10 +7,8 @@ import com.example.tntt_Manager.entity.enums.LeaderStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
-import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -44,7 +42,7 @@ public class Leader {
     private LocalDate dateOfBirth;
 
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+
     @Column(name = "gender", nullable = false)
     private Gender gender;
 
@@ -55,17 +53,17 @@ public class Leader {
     private String email;
 
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+
     @Column(name = "level", nullable = false)
     private LeaderLevel level;
 
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+
     @Column(name = "status", nullable = false)
     private LeaderStatus status;
 
     @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+
     @Column(name = "position", nullable = false)
     private LeaderPosition position;
 

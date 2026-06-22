@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,7 +21,7 @@ public class ClassroomController {
 
     private final ClassroomService classroomService;
 
-    // POST /api/v1/classrooms
+    @PreAuthorize("hasAnyRole('ADMIN', 'EXECUTIVE_COMMITTEE', 'BRANCH_LEADER')")
     @PostMapping
     public ResponseEntity<ClassroomResponseDTO> createClassroom(
             @Valid @RequestBody ClassroomRequestDTO dto) {
@@ -29,7 +30,6 @@ public class ClassroomController {
                 .body(classroomService.createClassroom(dto));
     }
 
-    // GET /api/v1/classrooms?year=2024-2025
     @GetMapping
     public ResponseEntity<List<ClassroomResponseDTO>> getClassroomsByYear(
             @RequestParam String year) {
@@ -37,7 +37,7 @@ public class ClassroomController {
         return ResponseEntity.ok(classroomService.getClassroomsByYear(year));
     }
 
-    // POST /api/v1/classrooms/enroll
+    @PreAuthorize("hasAnyRole('ADMIN', 'EXECUTIVE_COMMITTEE', 'BRANCH_LEADER')")
     @PostMapping("/enroll")
     public ResponseEntity<ClassEnrollmentResponseDTO> enrollStudentToClass(
             @Valid @RequestBody EnrollmentRequestDTO dto) {

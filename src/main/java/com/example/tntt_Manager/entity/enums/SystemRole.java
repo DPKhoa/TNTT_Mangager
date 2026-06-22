@@ -15,4 +15,8 @@ public enum SystemRole {
     JUNIOR_LEADER("JUNIOR_LEADER");
 
     private final String value;
+
+    public String toSpringRole() {
+        return "ROLE_" + value;
+    }
 }

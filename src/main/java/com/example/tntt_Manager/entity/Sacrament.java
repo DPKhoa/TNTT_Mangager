@@ -1,23 +1,24 @@
 package com.example.tntt_Manager.entity;
 
-import com.example.tntt_Manager.entity.enums.Branch;
+import com.example.tntt_Manager.entity.enums.SacramentType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "lop_hoc")
+@Table(name = "bi_tich")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Classroom {
+public class Sacrament {
 
     @Id
     @GeneratedValue
@@ -25,16 +26,26 @@ public class Classroom {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    @Column(name = "ten_lop", nullable = false)
-    private String className;
-
-    @Column(name = "nam_hoc", nullable = false)
-    private String academicYear;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "thieu_nhi_id", nullable = false)
+    private Member student;
 
     @Enumerated(EnumType.STRING)
 
-    @Column(name = "nganh", nullable = false)
-    private Branch division;
+    @Column(name = "loai_bi_tich", nullable = false)
+    private SacramentType sacramentType;
+
+    @Column(name = "ngay_nhan", nullable = false)
+    private LocalDate receivedDate;
+
+    @Column(name = "ten_thanh_bo_mang_nguoi_lam_chung")
+    private String patronSaint;
+
+    @Column(name = "linh_muc_ban")
+    private String celebrant;
+
+    @Column(name = "noi_nhan")
+    private String place;
 
     @CreationTimestamp
     @Column(name = "createdat", updatable = false)
