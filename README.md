@@ -1,6 +1,6 @@
 # TNTT Manager — Hệ thống quản lý Thiếu Nhi Thánh Thể
 
-Ứng dụng REST API backend để quản lý **Huynh Trưởng**, **Thiếu Nhi**, **Lớp học** và **Điểm danh** trong một đoàn Thiếu Nhi Thánh Thể. Xây dựng bằng **Spring Boot 4.1.0** + **Java 21** + **PostgreSQL**.
+REST API backend để quản lý **Huynh Trưởng**, **Thiếu Nhi**, **Lớp học**, **Điểm danh** và **Kết quả học tập** trong một đoàn Thiếu Nhi Thánh Thể. Xây dựng bằng **Spring Boot 4.1.0** + **Java 21** + **PostgreSQL** + **JWT Authentication**.
 
 ---
 
@@ -8,6 +8,7 @@
 
 - [Công nghệ sử dụng](#công-nghệ-sử-dụng)
 - [Cài đặt và chạy dự án](#cài-đặt-và-chạy-dự-án)
+- [Bảo mật và phân quyền](#bảo-mật-và-phân-quyền)
 - [Cấu trúc dự án](#cấu-trúc-dự-án)
 - [Sơ đồ luồng xử lý](#sơ-đồ-luồng-xử-lý)
 - [Các Entity và quan hệ dữ liệu](#các-entity-và-quan-hệ-dữ-liệu)
@@ -16,7 +17,6 @@
 - [Cấu hình Database](#cấu-hình-database)
 - [Xử lý lỗi toàn cục](#xử-lý-lỗi-toàn-cục)
 - [Ghi chú kỹ thuật quan trọng](#ghi-chú-kỹ-thuật-quan-trọng)
-- [Lịch sử đổi tên (Vietnamese → English)](#lịch-sử-đổi-tên-vietnamese--english)
 
 ---
 
@@ -26,6 +26,7 @@
 |---|---|
 | Ngôn ngữ | Java 21 |
 | Framework | Spring Boot 4.1.0 |
+| Bảo mật | Spring Security 6 + JWT (JJWT 0.12.6) |
 | ORM | Spring Data JPA + Hibernate |
 | Database | PostgreSQL |
 | Connection Pool | HikariCP |
@@ -43,7 +44,7 @@
 - Maven 3.8+
 - PostgreSQL 14+
 
-### Bước 1 — Tạo database, kích hoạt extension và tạo PostgreSQL Enum Type
+### Bước 1 — Tạo database
 
 Mở psql hoặc pgAdmin và chạy:
 
@@ -51,53 +52,29 @@ Mở psql hoặc pgAdmin và chạy:
 CREATE DATABASE tntt_manager;
 \c tntt_manager
 
--- Bắt buộc: extension để tìm kiếm không dấu tiếng Việt
+-- Bắt buộc: extension tìm kiếm không dấu tiếng Việt
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
--- Tùy chọn nhưng nên có: tăng tốc tìm kiếm LIKE với GIN index
+-- Nên có: tăng tốc tìm kiếm LIKE với GIN index
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ```
 
-> **Tại sao cần `unaccent`?** PostgreSQL mặc định so sánh chuỗi theo byte, tức là "Hoa" và "Hòa" là khác nhau. Extension `unaccent` giúp bỏ dấu trước khi so sánh, cho phép tìm "hoa" ra được "Hòa", "Hóa", "Hoà"...
-
-**Bắt buộc: Tạo các PostgreSQL Custom Enum Type trước khi khởi động app**
-
-Dự án dùng `@JdbcTypeCode(SqlTypes.NAMED_ENUM)` để ánh xạ Enum Java sang PostgreSQL custom type. Hibernate **không tự tạo** các type này — phải tạo thủ công một lần duy nhất:
-
-```sql
--- Enum cho Leader
-CREATE TYPE gender          AS ENUM ('MALE', 'FEMALE');
-CREATE TYPE leaderlevel     AS ENUM ('PROBATIONARY_LEADER', 'CERTIFIED_LEADER');
-CREATE TYPE leaderstatus    AS ENUM ('ACTIVE', 'ON_LEAVE', 'INACTIVE');
-CREATE TYPE leaderposition  AS ENUM (
-    'PARISH_CHIEF', 'PARISH_DEPUTY_EXTERNAL', 'PARISH_DEPUTY_INTERNAL',
-    'SECRETARY', 'TREASURER', 'SPECIALIST',
-    'BRANCH_LEADER', 'BRANCH_DEPUTY', 'CLASS_LEADER',
-    'ASSISTANT_SUPERVISOR', 'ASSISTANT_AIDE', 'GROUP_LEADER'
-);
-
--- Enum cho Classroom / ClassAssignment
-CREATE TYPE branch          AS ENUM ('SOLDIER', 'INFANT', 'JUNIOR', 'SENIOR', 'ADVENTURER', 'JUNIOR_LEADER');
-CREATE TYPE assignmentrole  AS ENUM ('MAIN_TEACHER', 'ASSISTANT_TEACHER');
-
--- Enum cho AttendanceRecord
-CREATE TYPE attendancestatus AS ENUM ('PRESENT', 'EXCUSED_ABSENCE', 'UNEXCUSED_ABSENCE');
-```
-
-> **Quy tắc đặt tên:** Tên PostgreSQL type = tên class Java Enum viết thường, không dấu gạch dưới.
-> Ví dụ: `LeaderLevel` → `leaderlevel`, `AssignmentRole` → `assignmentrole`.
+> **Lưu ý:** Dự án dùng `@Enumerated(EnumType.STRING)` — Hibernate tự tạo cột VARCHAR cho tất cả Enum. Không cần tạo PostgreSQL custom type thủ công.
 
 ### Bước 2 — Cấu hình kết nối
 
-Mở `src/main/resources/application.yml` và chỉnh lại thông tin database của bạn:
+Mở `src/main/resources/application.properties` và chỉnh lại:
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/tntt_manager
-    username: postgres
-    password: "your_password"
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/tntt_manager
+spring.datasource.username=postgres
+spring.datasource.password=your_password
+
+app.jwt.secret=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+app.jwt.expiration-ms=86400000
 ```
+
+> **JWT Secret:** Phải là chuỗi Base64 của ít nhất 32 byte (256-bit). Thay bằng chuỗi ngẫu nhiên của riêng bạn trước khi deploy.
 
 ### Bước 3 — Chạy ứng dụng
 
@@ -105,8 +82,66 @@ spring:
 mvn spring-boot:run
 ```
 
-Ứng dụng sẽ khởi động tại `http://localhost:8080`.
-Hibernate tự động tạo/cập nhật bảng nhờ cấu hình `ddl-auto: update` — không cần chạy SQL tạo bảng thủ công.
+Ứng dụng khởi động tại `http://localhost:8080`.  
+Hibernate tự động tạo/cập nhật schema nhờ `ddl-auto=update`.
+
+### Bước 4 — Tạo tài khoản đầu tiên
+
+Vì chưa có user nào trong DB, gọi API tạo user (endpoint này không cần token):
+
+```http
+POST http://localhost:8080/api/v1/users
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "123456",
+  "role": "ADMIN"
+}
+```
+
+Sau đó đăng nhập để lấy JWT token và dùng cho các API khác.
+
+---
+
+## Bảo mật và phân quyền
+
+### Luồng xác thực (JWT)
+
+```
+[1] POST /api/v1/auth/login  →  trả về JWT token
+[2] Mọi request sau:         →  thêm header "Authorization: Bearer <token>"
+[3] JwtAuthenticationFilter  →  giải mã token, set SecurityContext
+[4] @PreAuthorize            →  kiểm tra role trước khi vào Controller
+```
+
+### Ma trận phân quyền
+
+| Endpoint | ADMIN | EXEC | BRANCH | CLASS | GROUP | JUNIOR |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `POST /auth/login` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /users` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `GET /leaders`, `GET /members` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST/PUT/DELETE /leaders` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `POST /classrooms`, `/enroll` | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `GET /classrooms` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /attendance/session`, `/submit` | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `GET /attendance/session/{id}` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `PUT /progress/evaluate` | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| `GET /progress` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> **EXEC** = `EXECUTIVE_COMMITTEE`, **BRANCH** = `BRANCH_LEADER`, **CLASS** = `CLASS_LEADER`, **GROUP** = `GROUP_LEADER`, **JUNIOR** = `JUNIOR_LEADER`
+
+Vi phạm quyền trả về `403 Forbidden`. Không có token trả về `403 Forbidden`.
+
+### Các thành phần Security
+
+| Class | Vai trò |
+|---|---|
+| `JwtTokenProvider` | Tạo / giải mã / kiểm tra JWT token |
+| `JwtAuthenticationFilter` | Filter chạy trên mọi request, đọc token từ header |
+| `UserDetailsServiceImpl` | Load user từ DB, gán `ROLE_` cho Spring Security |
+| `SecurityConfig` | Cấu hình tổng thể, bật `@EnableMethodSecurity` |
 
 ---
 
@@ -115,19 +150,28 @@ Hibernate tự động tạo/cập nhật bảng nhờ cấu hình `ddl-auto: up
 ```
 src/main/java/com/example/tntt_Manager/
 │
-├── TNTManagerApplication.java          # Entry point — hàm main()
+├── config/
+│   └── SecurityConfig.java             # Cấu hình Spring Security + JWT filter
 │
-├── entity/                             # Tầng Entity — ánh xạ trực tiếp sang bảng DB
+├── security/
+│   ├── JwtTokenProvider.java           # Tạo, giải mã, kiểm tra JWT
+│   ├── JwtAuthenticationFilter.java    # Filter xác thực JWT mỗi request
+│   └── UserDetailsServiceImpl.java     # Load user từ DB cho Spring Security
+│
+├── entity/
 │   ├── Leader.java                     # Huynh Trưởng
 │   ├── Member.java                     # Thiếu Nhi
 │   ├── Guardian.java                   # Phụ huynh / người giám hộ
-│   ├── User.java                       # Tài khoản đăng nhập hệ thống
-│   ├── Classroom.java                  # Lớp học (lop_hoc)
-│   ├── ClassEnrollment.java            # Phân lớp thiếu nhi (phan_lop)
-│   ├── ClassAssignment.java            # Phân công huynh trưởng (phan_cong_lop)
-│   ├── AttendanceSession.java          # Buổi điểm danh (buoi_diem_danh)
-│   ├── AttendanceRecord.java           # Chi tiết điểm danh (chi_tiet_diem_danh)
+│   ├── User.java                       # Tài khoản đăng nhập
+│   ├── Classroom.java                  # Lớp học
+│   ├── ClassEnrollment.java            # Phân lớp thiếu nhi
+│   ├── ClassAssignment.java            # Phân công huynh trưởng
+│   ├── AttendanceSession.java          # Buổi điểm danh
+│   ├── AttendanceRecord.java           # Chi tiết điểm danh
+│   ├── StudentProgress.java            # Kết quả học tập / lên lớp
+│   ├── Sacrament.java                  # Bí tích đã lãnh nhận
 │   └── enums/
+│       ├── SystemRole.java             # Quyền tài khoản (ADMIN, CLASS_LEADER...)
 │       ├── Gender.java
 │       ├── Branch.java
 │       ├── LeaderLevel.java
@@ -136,56 +180,72 @@ src/main/java/com/example/tntt_Manager/
 │       ├── MemberOrigin.java
 │       ├── MemberStatus.java
 │       ├── RelationshipType.java
-│       ├── SystemRole.java
-│       ├── AssignmentRole.java         # Vai trò HT trong lớp (trưởng lớp / phụ tá)
-│       └── AttendanceStatus.java       # Trạng thái điểm danh
+│       ├── AssignmentRole.java
+│       ├── AttendanceStatus.java
+│       ├── AcademicPerformance.java    # Học lực (EXCELLENT, GOOD...)
+│       └── SacramentType.java          # Loại bí tích (BAPTISM, EUCHARIST...)
 │
 ├── repository/
+│   ├── UserRepository.java
 │   ├── LeaderRepository.java
 │   ├── MemberRepository.java
-│   ├── UserRepository.java
 │   ├── ClassroomRepository.java
 │   ├── ClassEnrollmentRepository.java
 │   ├── ClassAssignmentRepository.java
 │   ├── AttendanceSessionRepository.java
-│   └── AttendanceRecordRepository.java
+│   ├── AttendanceRecordRepository.java
+│   ├── StudentProgressRepository.java
+│   └── SacramentRepository.java
 │
 ├── dto/
 │   ├── request/
+│   │   ├── LoginRequestDTO.java
+│   │   ├── CreateUserRequestDTO.java
 │   │   ├── LeaderRequestDTO.java
 │   │   ├── MemberRequestDTO.java
 │   │   ├── GuardianRequestDTO.java
-│   │   ├── LoginRequestDTO.java
 │   │   ├── ClassroomRequestDTO.java
 │   │   ├── EnrollmentRequestDTO.java
 │   │   ├── AttendanceSessionRequestDTO.java
 │   │   ├── AttendanceRecordSubmitDTO.java
-│   │   └── BulkAttendanceSubmitDTO.java
+│   │   ├── BulkAttendanceSubmitDTO.java
+│   │   ├── EvaluateRequestDTO.java
+│   │   └── SacramentRequestDTO.java
 │   └── response/
+│       ├── AuthResponseDTO.java
+│       ├── UserResponseDTO.java
 │       ├── LeaderResponseDTO.java
 │       ├── MemberResponseDTO.java
 │       ├── GuardianResponseDTO.java
 │       ├── ClassroomResponseDTO.java
 │       ├── ClassEnrollmentResponseDTO.java
 │       ├── AttendanceSessionResponseDTO.java
-│       └── AttendanceReportResponseDTO.java
+│       ├── AttendanceReportResponseDTO.java
+│       └── StudentProgressResponseDTO.java
 │
 ├── service/
+│   ├── UserService.java
 │   ├── LeaderService.java
 │   ├── MemberService.java
 │   ├── ClassroomService.java
 │   ├── AttendanceService.java
+│   ├── StudentProgressService.java
 │   └── impl/
+│       ├── UserServiceImpl.java
 │       ├── LeaderServiceImpl.java
 │       ├── MemberServiceImpl.java
 │       ├── ClassroomServiceImpl.java
-│       └── AttendanceServiceImpl.java
+│       ├── AttendanceServiceImpl.java
+│       └── StudentProgressServiceImpl.java
 │
 ├── controller/
+│   ├── AuthController.java
+│   ├── UserController.java
 │   ├── LeaderController.java
 │   ├── MemberController.java
 │   ├── ClassroomController.java
-│   └── AttendanceController.java
+│   ├── AttendanceController.java
+│   └── StudentProgressController.java
 │
 └── exception/
     ├── ResourceNotFoundException.java
@@ -197,44 +257,53 @@ src/main/java/com/example/tntt_Manager/
 
 ## Sơ đồ luồng xử lý
 
-Mỗi HTTP request đi qua 4 tầng theo thứ tự sau:
+### Luồng request thông thường (có token)
 
 ```
-[Client gửi HTTP Request]
+[Client gửi HTTP Request + Authorization: Bearer <token>]
          │
          ▼
-  ┌─────────────────┐
-  │   Controller    │  Nhận request, validate đầu vào (@Valid), gọi Service
-  └────────┬────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │     Service     │  Xử lý logic nghiệp vụ, map Entity ↔ DTO
-  └────────┬────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │   Repository    │  Truy vấn database qua Spring Data JPA
-  └────────┬────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │   PostgreSQL    │  Lưu trữ và trả về dữ liệu
-  └────────┬────────┘
-           │
-           ▼ (chiều ngược lại)
+  ┌──────────────────────────┐
+  │  JwtAuthenticationFilter │  Giải mã token → set SecurityContext
+  └────────────┬─────────────┘
+               │
+               ▼
+  ┌──────────────────────────┐
+  │  @PreAuthorize check     │  Kiểm tra role → 403 nếu không đủ quyền
+  └────────────┬─────────────┘
+               │
+               ▼
+  ┌──────────────────────────┐
+  │       Controller         │  Validate đầu vào (@Valid), gọi Service
+  └────────────┬─────────────┘
+               │
+               ▼
+  ┌──────────────────────────┐
+  │        Service           │  Xử lý logic nghiệp vụ, map Entity ↔ DTO
+  └────────────┬─────────────┘
+               │
+               ▼
+  ┌──────────────────────────┐
+  │       Repository         │  Truy vấn PostgreSQL qua Spring Data JPA
+  └────────────┬─────────────┘
+               │
+               ▼ (chiều ngược lại)
   Entity → DTO → JSON → [Client nhận HTTP Response]
 ```
-
-**Tại sao phải tách nhiều tầng như vậy?**
-- **Controller** không nên chứa logic — nếu cần đổi giao thức (HTTP → gRPC), chỉ cần viết lại Controller, không đụng Service.
-- **Service** không biết đến HTTP — logic nghiệp vụ độc lập, dễ test.
-- **Repository** không biết đến DTO — chỉ làm việc với Entity, dễ tái sử dụng.
-- **DTO** bảo vệ Entity khỏi bị lộ ra ngoài (ví dụ: không để lộ `passwordHash`).
 
 ---
 
 ## Các Entity và quan hệ dữ liệu
+
+### User (Tài khoản) — bảng `users`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | UUID | Khóa chính, tự sinh |
+| `username` | VARCHAR | Tên đăng nhập, duy nhất |
+| `password_hash` | VARCHAR | Mật khẩu đã BCrypt hash |
+| `role` | VARCHAR | Quyền hệ thống (`SystemRole`) |
+| `huynh_truong_id` | UUID (FK) | Liên kết với `leader`, có thể null |
 
 ### Leader (Huynh Trưởng) — bảng `leader`
 
@@ -245,13 +314,13 @@ Mỗi HTTP request đi qua 4 tầng theo thứ tự sau:
 | `christian_name` | VARCHAR | Tên thánh (nullable) |
 | `full_name` | VARCHAR | Họ và tên, bắt buộc |
 | `date_of_birth` | DATE | Ngày sinh |
-| `gender` | ENUM | `MALE` / `FEMALE` |
+| `gender` | VARCHAR | `MALE` / `FEMALE` |
 | `phone_number` | VARCHAR(15) | Số điện thoại |
 | `email` | VARCHAR | Email |
-| `level` | ENUM | Cấp bậc huynh trưởng |
-| `status` | ENUM | Trạng thái hoạt động |
-| `position` | ENUM | Chức vụ trong đoàn |
-| `createdat` | TIMESTAMPTZ | Tự điền khi tạo mới |
+| `level` | VARCHAR | Cấp bậc huynh trưởng |
+| `status` | VARCHAR | Trạng thái hoạt động |
+| `position` | VARCHAR | Chức vụ trong đoàn |
+| `createdat` | TIMESTAMPTZ | Tự điền khi tạo |
 | `updatedat` | TIMESTAMPTZ | Tự cập nhật khi sửa |
 
 ### Member (Thiếu Nhi) — bảng `members`
@@ -262,72 +331,26 @@ Mỗi HTTP request đi qua 4 tầng theo thứ tự sau:
 | `ho_va_ten` | VARCHAR | Họ và tên |
 | `ten_thanh` | VARCHAR | Tên thánh (nullable) |
 | `ngay_sinh` | DATE | Ngày sinh |
-| `gioi_tinh` | ENUM | Giới tính |
+| `gioi_tinh` | VARCHAR | Giới tính |
 | `dia_chi` | VARCHAR | Địa chỉ |
-| `nganh` | ENUM | Ngành sinh hoạt |
-| `trang_thai` | ENUM | Trạng thái |
-| `nguon_goc` | ENUM | Nguồn gốc gia nhập |
+| `nganh` | VARCHAR | Ngành sinh hoạt |
+| `trang_thai` | VARCHAR | Trạng thái |
+| `nguon_goc` | VARCHAR | Nguồn gốc gia nhập |
 | `ngay_gia_nhap` | DATE | Ngày gia nhập |
 | `ghi_chu` | TEXT | Ghi chú tự do |
 
-### Guardian (Phụ huynh) — bảng `guardians`
-
-Mỗi thiếu nhi có thể có **nhiều** phụ huynh. Quan hệ `ManyToOne` từ Guardian về Member (một thiếu nhi ← nhiều phụ huynh).
-
-### User (Tài khoản) — bảng `users`
-
-Mỗi `User` liên kết `OneToOne` với một `Leader`. Một huynh trưởng có thể có (hoặc chưa có) tài khoản đăng nhập.
-
-### Classroom (Lớp học) — bảng `lop_hoc`
+### StudentProgress (Kết quả học tập) — bảng `ket_qua_hoc_tap`
 
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
-| `id` | UUID | Khóa chính, tự sinh |
-| `ten_lop` | VARCHAR | Tên lớp |
-| `nam_hoc` | VARCHAR | Năm học (VD: "2024-2025") |
-| `nganh` | ENUM `branch` | Ngành sinh hoạt của lớp |
-| `createdat` | TIMESTAMPTZ | Tự điền khi tạo mới |
-| `updatedat` | TIMESTAMPTZ | Tự cập nhật khi sửa |
-
-### ClassEnrollment (Phân lớp) — bảng `phan_lop`
-
-| Cột | Kiểu | Ghi chú |
-|---|---|---|
-| `id` | UUID | Khóa chính, tự sinh |
-| `student_id` | UUID (FK) | Trỏ về bảng `members` |
-| `lop_hoc_id` | UUID (FK) | Trỏ về bảng `lop_hoc` |
-| `ngay_phan_lop` | DATE | Ngày phân lớp |
-
-### ClassAssignment (Phân công HT) — bảng `phan_cong_lop`
-
-| Cột | Kiểu | Ghi chú |
-|---|---|---|
-| `id` | UUID | Khóa chính, tự sinh |
-| `huynh_truong_id` | UUID (FK) | Trỏ về bảng `leader` |
-| `lop_hoc_id` | UUID (FK) | Trỏ về bảng `lop_hoc` |
-| `vai_tro` | ENUM `assignmentrole` | Trưởng lớp hoặc Phụ tá |
-| `ngay_phan_cong` | DATE | Ngày phân công |
-
-### AttendanceSession (Buổi điểm danh) — bảng `buoi_diem_danh`
-
-| Cột | Kiểu | Ghi chú |
-|---|---|---|
-| `id` | UUID | Khóa chính, tự sinh |
-| `ngay_diem_danh` | DATE | Ngày tổ chức buổi sinh hoạt |
-| `ghi_chu` | VARCHAR | Mô tả buổi học (nullable) |
-| `lop_hoc_id` | UUID (FK) | Trỏ về bảng `lop_hoc` |
-| `createdat` | TIMESTAMPTZ | Tự điền khi tạo mới |
-| `updatedat` | TIMESTAMPTZ | Tự cập nhật khi sửa |
-
-### AttendanceRecord (Chi tiết điểm danh) — bảng `chi_tiet_diem_danh`
-
-| Cột | Kiểu | Ghi chú |
-|---|---|---|
-| `id` | UUID | Khóa chính, tự sinh |
-| `buoi_diem_danh_id` | UUID (FK) | Trỏ về bảng `buoi_diem_danh` |
-| `thieu_nhi_id` | UUID (FK) | Trỏ về bảng `members` |
-| `trang_thai` | ENUM `attendancestatus` | Có mặt / Vắng phép / Vắng không phép |
-| `ghi_chu_rieng` | VARCHAR | Ghi chú riêng cho học sinh (nullable) |
+| `id` | UUID | Khóa chính |
+| `thieu_nhi_id` | UUID (FK) | Thiếu nhi |
+| `lop_hoc_id` | UUID (FK) | Lớp học |
+| `diem_giao_ly` | DECIMAL(5,2) | Điểm giáo lý |
+| `diem_chuyen_can` | DECIMAL(5,2) | Điểm chuyên cần |
+| `hoc_luc` | VARCHAR | Học lực (`AcademicPerformance`) |
+| `is_len_lop` | BOOLEAN | Đã lên lớp chưa |
+| `ghi_chu` | TEXT | Ghi chú |
 
 ### Quan hệ giữa các Entity
 
@@ -338,14 +361,28 @@ User ──(1:1)──► Leader
                                                                │
 Member ──(1:N)──► Guardian           ClassEnrollment ◄──(N:1)─┘
   │                                       ▲
-  └──(1:N)──► ClassEnrollment ────────────┘
+  ├──(1:N)──► ClassEnrollment ────────────┘
   │
-  └──(1:N)──► AttendanceRecord ◄──(N:1)── AttendanceSession ──(N:1)──► Classroom
+  ├──(1:N)──► AttendanceRecord ◄──(N:1)── AttendanceSession ──(N:1)──► Classroom
+  │
+  ├──(1:N)──► StudentProgress ──(N:1)──► Classroom
+  │
+  └──(1:N)──► Sacrament
 ```
 
 ---
 
 ## Danh sách Enum
+
+### SystemRole (Quyền tài khoản)
+| Giá trị | Ý nghĩa | Spring Security role |
+|---|---|---|
+| `ADMIN` | Quản trị hệ thống | `ROLE_ADMIN` |
+| `EXECUTIVE_COMMITTEE` | Ban điều hành xứ đoàn | `ROLE_EXECUTIVE_COMMITTEE` |
+| `BRANCH_LEADER` | Trưởng ngành (Ấu/Thiếu/Nghĩa/Hiệp) | `ROLE_BRANCH_LEADER` |
+| `CLASS_LEADER` | Huynh trưởng phụ trách lớp | `ROLE_CLASS_LEADER` |
+| `GROUP_LEADER` | Huynh trưởng thông thường | `ROLE_GROUP_LEADER` |
+| `JUNIOR_LEADER` | Dự trưởng | `ROLE_JUNIOR_LEADER` |
 
 ### Gender (Giới tính)
 | Giá trị | Ý nghĩa |
@@ -386,12 +423,12 @@ Member ──(1:N)──► Guardian           ClassEnrollment ◄──(N:1)─
 | `GROUP_LEADER` | Trưởng nhóm |
 
 ### LeaderStatus / MemberStatus (Trạng thái)
-| Giá trị | Ý nghĩa | Leader | Member |
-|---|---|---|---|
-| `ACTIVE` | Đang hoạt động | ✓ | ✓ |
-| `ON_LEAVE` | Tạm nghỉ | ✓ | ✓ |
-| `INACTIVE` | Không hoạt động | ✓ | ✓ |
-| `GRADUATED` | Đã tốt nghiệp | — | ✓ |
+| Giá trị | Leader | Member |
+|---|:---:|:---:|
+| `ACTIVE` — Đang hoạt động | ✓ | ✓ |
+| `ON_LEAVE` — Tạm nghỉ | ✓ | ✓ |
+| `INACTIVE` — Không hoạt động | ✓ | ✓ |
+| `GRADUATED` — Đã tốt nghiệp | — | ✓ |
 
 ### MemberOrigin (Nguồn gốc Thiếu Nhi)
 | Giá trị | Ý nghĩa |
@@ -408,16 +445,6 @@ Member ──(1:N)──► Guardian           ClassEnrollment ◄──(N:1)─
 | `GRANDPARENT` | Ông/Bà |
 | `OTHER_GUARDIAN` | Người giám hộ khác |
 
-### SystemRole (Quyền tài khoản)
-| Giá trị | Ý nghĩa |
-|---|---|
-| `ADMIN` | Quản trị hệ thống |
-| `EXECUTIVE_COMMITTEE` | Ban chấp hành |
-| `BRANCH_LEADER` | Trưởng ngành |
-| `CLASS_LEADER` | Trưởng lớp |
-| `GROUP_LEADER` | Trưởng nhóm |
-| `JUNIOR_LEADER` | Dự trưởng |
-
 ### AssignmentRole (Vai trò HT trong lớp)
 | Giá trị | Ý nghĩa |
 |---|---|
@@ -431,29 +458,91 @@ Member ──(1:N)──► Guardian           ClassEnrollment ◄──(N:1)─
 | `EXCUSED_ABSENCE` | Vắng có phép |
 | `UNEXCUSED_ABSENCE` | Vắng không phép |
 
+### AcademicPerformance (Học lực)
+| Giá trị | Ý nghĩa |
+|---|---|
+| `EXCELLENT` | Giỏi |
+| `GOOD` | Khá |
+| `AVERAGE` | Trung bình |
+| `WEAK` | Yếu |
+
+### SacramentType (Loại bí tích)
+| Giá trị | Ý nghĩa |
+|---|---|
+| `BAPTISM` | Rửa tội |
+| `EUCHARIST` | Rước lễ lần đầu |
+| `CONFIRMATION` | Thêm sức |
+
 ---
 
 ## API Reference
 
 Base URL: `http://localhost:8080`
 
+> Tất cả API (trừ `/auth/**` và `POST /users`) đều yêu cầu header:
+> ```
+> Authorization: Bearer <jwt_token>
+> ```
+
+---
+
+### Xác thực — `/api/v1/auth`
+
+#### Đăng nhập
+```
+POST /api/v1/auth/login
+```
+```json
+{
+  "username": "admin",
+  "password": "123456"
+}
+```
+Response:
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
+  "tokenType": "Bearer"
+}
+```
+
+---
+
+### Tài khoản — `/api/v1/users`
+
+#### Tạo tài khoản mới *(không cần token)*
+```
+POST /api/v1/users
+```
+```json
+{
+  "username": "truonglop_maria",
+  "password": "matkhau123",
+  "role": "CLASS_LEADER",
+  "leaderId": "uuid-của-huynh-trưởng"
+}
+```
+> `leaderId` là tùy chọn — để `null` nếu chưa liên kết với huynh trưởng nào.
+
+---
+
 ### Huynh Trưởng — `/api/v1/leaders`
 
-#### Lấy danh sách tất cả huynh trưởng (có phân trang, sắp xếp theo tên A→Z)
+#### Lấy danh sách (tất cả role)
 ```
 GET /api/v1/leaders?page=0&size=10
 ```
 
-#### Tìm kiếm huynh trưởng theo tên hoặc tên thánh (không phân biệt dấu, hoa/thường)
+#### Tìm kiếm theo tên / tên thánh
 ```
 GET /api/v1/leaders/search?keyword=maria&page=0&size=10
 ```
 
-#### Tạo mới huynh trưởng
+#### Tạo mới *(ADMIN, EXECUTIVE_COMMITTEE)*
 ```
 POST /api/v1/leaders
-Content-Type: application/json
-
+```
+```json
 {
   "leaderCode": "HT-001",
   "christianName": "Têrêxa",
@@ -464,19 +553,16 @@ Content-Type: application/json
   "email": "hoa.nguyen@gmail.com",
   "level": "CERTIFIED_LEADER",
   "status": "ACTIVE",
-  "position": "BRANCH_LEADER"
+  "position": "CLASS_LEADER"
 }
 ```
 
-#### Cập nhật huynh trưởng
+#### Cập nhật *(ADMIN, EXECUTIVE_COMMITTEE)*
 ```
 PUT /api/v1/leaders/{id}
-Content-Type: application/json
-
-{ ... (body giống POST) ... }
 ```
 
-#### Xóa huynh trưởng
+#### Xóa *(ADMIN, EXECUTIVE_COMMITTEE)*
 ```
 DELETE /api/v1/leaders/{id}
 ```
@@ -485,49 +571,46 @@ DELETE /api/v1/leaders/{id}
 
 ### Thiếu Nhi — `/api/v1/members`
 
-#### Lấy danh sách thiếu nhi theo trạng thái
+#### Lấy danh sách theo trạng thái
 ```
 GET /api/v1/members?status=ACTIVE&page=0&size=10
 ```
-> Mặc định `status=ACTIVE` nếu không truyền tham số.
+> Mặc định `status=ACTIVE` nếu không truyền.
 
-#### Tìm kiếm thiếu nhi theo tên hoặc tên thánh
+#### Tìm kiếm theo tên
 ```
 GET /api/v1/members/search?keyword=gioan&page=0&size=10
 ```
 
-#### Tạo mới thiếu nhi
+#### Tạo mới
 ```
 POST /api/v1/members
-Content-Type: application/json
 ```
 
-#### Cập nhật thiếu nhi
+#### Cập nhật
 ```
 PUT /api/v1/members/{id}
-Content-Type: application/json
 ```
 
-#### Xóa thiếu nhi
+#### Xóa
 ```
 DELETE /api/v1/members/{id}
 ```
 
-#### Thêm phụ huynh cho một thiếu nhi
+#### Thêm phụ huynh
 ```
 POST /api/v1/members/{memberId}/guardians
-Content-Type: application/json
 ```
 
 ---
 
 ### Lớp học — `/api/v1/classrooms`
 
-#### Tạo lớp học mới
+#### Tạo lớp *(ADMIN, EXECUTIVE_COMMITTEE, BRANCH_LEADER)*
 ```
 POST /api/v1/classrooms
-Content-Type: application/json
-
+```
+```json
 {
   "className": "Lớp Têrêxa",
   "academicYear": "2024-2025",
@@ -535,75 +618,95 @@ Content-Type: application/json
 }
 ```
 
-#### Lấy danh sách lớp theo năm học
+#### Lấy danh sách theo năm học
 ```
 GET /api/v1/classrooms?year=2024-2025
 ```
 
-#### Xếp một thiếu nhi vào lớp
+#### Xếp thiếu nhi vào lớp *(ADMIN, EXECUTIVE_COMMITTEE, BRANCH_LEADER)*
 ```
 POST /api/v1/classrooms/enroll
-Content-Type: application/json
-
+```
+```json
 {
   "memberId": "uuid-của-thiếu-nhi",
-  "classroomId": "uuid-của-lớp-học",
+  "classroomId": "uuid-của-lớp",
   "enrollmentDate": "2024-09-01"
 }
 ```
-> `enrollmentDate` là tùy chọn — mặc định là ngày hôm nay nếu không truyền.
 
 ---
 
 ### Điểm danh — `/api/v1/attendance`
 
-#### Tạo buổi điểm danh mới cho một lớp
+#### Tạo buổi điểm danh *(CLASS_LEADER trở lên)*
 ```
 POST /api/v1/attendance/session
-Content-Type: application/json
-
+```
+```json
 {
-  "classroomId": "uuid-của-lớp-học",
+  "classroomId": "uuid-của-lớp",
   "sessionDate": "2024-12-01",
   "description": "Buổi sinh hoạt tháng 12"
 }
 ```
 
-#### Nộp bảng điểm danh cả lớp
+#### Nộp bảng điểm danh *(CLASS_LEADER trở lên)*
 ```
 POST /api/v1/attendance/submit
-Content-Type: application/json
-
+```
+```json
 {
-  "sessionId": "uuid-của-buổi-điểm-danh",
+  "sessionId": "uuid-buổi-điểm-danh",
   "records": [
-    { "studentId": "uuid-1", "status": "PRESENT",            "remarks": null },
-    { "studentId": "uuid-2", "status": "EXCUSED_ABSENCE",    "remarks": "Báo phép qua điện thoại" },
-    { "studentId": "uuid-3", "status": "UNEXCUSED_ABSENCE",  "remarks": null }
+    { "studentId": "uuid-1", "status": "PRESENT",           "remarks": null },
+    { "studentId": "uuid-2", "status": "EXCUSED_ABSENCE",   "remarks": "Báo phép qua điện thoại" },
+    { "studentId": "uuid-3", "status": "UNEXCUSED_ABSENCE", "remarks": null }
   ]
 }
 ```
-> Có thể nộp lại nhiều lần — hệ thống tự xóa dữ liệu cũ và lưu mới.  
-> Response: HTTP `204 No Content`.
+> Có thể nộp lại nhiều lần — hệ thống tự thay thế dữ liệu cũ. Response: `204 No Content`.
 
-#### Xem kết quả điểm danh của một buổi
+#### Xem kết quả một buổi
 ```
 GET /api/v1/attendance/session/{sessionId}
 ```
 
 ---
 
+### Kết quả học tập — `/api/v1/progress`
+
+#### Nhập điểm / đánh giá lên lớp *(CLASS_LEADER trở lên)*
+```
+PUT /api/v1/progress/evaluate
+```
+```json
+{
+  "studentId": "uuid-thiếu-nhi",
+  "classroomId": "uuid-lớp",
+  "catechismScore": 8.5,
+  "attendanceScore": 9.0,
+  "remarks": "Tiến bộ tốt"
+}
+```
+
+#### Xem kết quả của một thiếu nhi
+```
+GET /api/v1/progress?studentId=uuid&classroomId=uuid
+```
+
+---
+
 ### Quy tắc phân trang chung
 
-Tất cả API GET danh sách đều hỗ trợ tham số:
+Tất cả API GET danh sách đều hỗ trợ:
 
 | Tham số | Mặc định | Ý nghĩa |
 |---|---|---|
 | `page` | `0` | Số trang (bắt đầu từ 0) |
 | `size` | `10` | Số bản ghi mỗi trang |
 
-Response trả về dạng `Page<T>` gồm:
-
+Response dạng `Page<T>`:
 ```json
 {
   "content": [ ... ],
@@ -620,47 +723,51 @@ Response trả về dạng `Page<T>` gồm:
 
 ## Cấu hình Database
 
-File cấu hình: `src/main/resources/application.yml`
+File: `src/main/resources/application.properties`
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/tntt_manager
-    username: postgres
-    password: "123456"
-    hikari:
-      maximum-pool-size: 10     # Tối đa 10 connection đồng thời
-      minimum-idle: 2           # Duy trì tối thiểu 2 connection sẵn sàng
-      connection-timeout: 20000 # Chờ lấy connection tối đa 20 giây
-      idle-timeout: 300000      # Connection nhàn rỗi quá 5 phút sẽ bị đóng
-      max-lifetime: 1800000     # Mỗi connection sống tối đa 30 phút rồi được làm mới
+```properties
+# DataSource
+spring.datasource.url=jdbc:postgresql://localhost:5432/tntt_manager
+spring.datasource.username=postgres
+spring.datasource.password=123456
 
-  jpa:
-    hibernate:
-      ddl-auto: update          # Tự tạo/cập nhật schema khi khởi động
-    show-sql: true              # In SQL ra console (tắt ở production)
-    open-in-view: false         # Tắt anti-pattern OSIV để tránh giữ DB session quá lâu
+# HikariCP
+spring.datasource.hikari.maximum-pool-size=10
+spring.datasource.hikari.minimum-idle=2
+spring.datasource.hikari.connection-timeout=20000
+spring.datasource.hikari.idle-timeout=300000
+spring.datasource.hikari.max-lifetime=1800000
+
+# JPA
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.open-in-view=false
+
+# JWT
+app.jwt.secret=404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+app.jwt.expiration-ms=86400000
 ```
 
-> **Lưu ý production:** Đổi `ddl-auto: update` thành `validate` khi deploy thật. Dùng công cụ migration như Flyway để quản lý thay đổi schema có kiểm soát.
+> **Production:** Đổi `ddl-auto=update` thành `validate`. Dùng Flyway để quản lý migration có kiểm soát. Đổi JWT secret thành chuỗi random an toàn.
 
 ---
 
 ## Xử lý lỗi toàn cục
 
-`GlobalExceptionHandler` (dùng `@RestControllerAdvice`) bắt lỗi tập trung thay vì để từng Controller tự xử lý:
+`GlobalExceptionHandler` (`@RestControllerAdvice`) bắt lỗi tập trung:
 
 | Loại lỗi | HTTP Status | Nguyên nhân |
 |---|---|---|
-| `MethodArgumentNotValidException` | `400 Bad Request` | Dữ liệu đầu vào không vượt qua validation (`@NotBlank`, `@Email`...) |
-| `ResourceNotFoundException` | `404 Not Found` | Không tìm thấy bản ghi theo `id` |
-| `RuntimeException` (chung) | `500 Internal Server Error` | Lỗi không xác định |
+| `MethodArgumentNotValidException` | `400 Bad Request` | Dữ liệu không vượt validation |
+| `IllegalArgumentException` | `400 Bad Request` | Username trùng, logic sai |
+| `ResourceNotFoundException` | `404 Not Found` | Không tìm thấy bản ghi |
+| `AccessDeniedException` | `403 Forbidden` | Không đủ quyền |
+| `RuntimeException` | `500 Internal Server Error` | Lỗi không xác định |
 
-Tất cả response lỗi đều trả về cùng một cấu trúc JSON:
-
+Tất cả response lỗi trả về cùng cấu trúc:
 ```json
 {
-  "timestamp": "2026-06-19T07:30:00.123Z",
+  "timestamp": "2026-06-22T07:30:00.123Z",
   "status": 404,
   "message": "Leader not found with id: abc-123"
 }
@@ -670,165 +777,57 @@ Tất cả response lỗi đều trả về cùng một cấu trúc JSON:
 
 ## Ghi chú kỹ thuật quan trọng
 
-### 1. Tìm kiếm không dấu tiếng Việt
+### 1. JWT stateless — không dùng session
 
-`LeaderRepository` và `MemberRepository` đều dùng PostgreSQL Native Query với `unaccent` + `lower`:
+Server không lưu session. Mỗi request phải tự mang token. Token có hiệu lực 24 giờ (`expiration-ms=86400000`).
+
+### 2. `@PreAuthorize` và `hasAnyRole()`
+
+`hasAnyRole('ADMIN')` trong Spring Security tự động thêm tiền tố `ROLE_`, nên so khớp đúng với `ROLE_ADMIN` mà `UserDetailsServiceImpl` gán.  
+`@EnableMethodSecurity` trong `SecurityConfig` bật tính năng này.
+
+### 3. Tìm kiếm không dấu tiếng Việt
+
+`LeaderRepository` và `MemberRepository` dùng PostgreSQL Native Query:
 
 ```sql
-WHERE unaccent(lower(full_name || ' ' || coalesce(christian_name, '')))
-      LIKE unaccent(lower(concat('%', :keyword, '%')))
+WHERE unaccent(lower(full_name)) LIKE unaccent(lower(concat('%', :keyword, '%')))
 ```
 
-- `lower()` — Chuyển về chữ thường → "MARIA" = "maria"
-- `unaccent()` — Bỏ dấu → "María" = "Maria" = "maria"
-- `coalesce(christian_name, '')` — Nếu tên thánh là NULL thì dùng chuỗi rỗng, tránh cả expression bị NULL
-- `countQuery` riêng biệt — Bắt buộc khi dùng `Page` + `nativeQuery = true`, Spring cần câu đếm để tính `totalPages`
+- `lower()` — "MARIA" = "maria"
+- `unaccent()` — "María" = "Maria"
+- Yêu cầu extension `unaccent` đã được tạo (Bước 1)
 
-### 2. Tối ưu N+1 với @EntityGraph
+### 4. N+1 Query và `@EntityGraph`
 
-`MemberRepository.findByStatus()` dùng `@EntityGraph(attributePaths = "guardians")`:
+`MemberRepository.findByStatus()` dùng `@EntityGraph(attributePaths = "guardians")` để load Guardian cùng lúc với Member bằng một JOIN duy nhất, tránh N+1 queries.
 
-```java
-@EntityGraph(attributePaths = "guardians")
-Page<Member> findByStatus(MemberStatus status, Pageable pageable);
+### 5. `@Transactional(readOnly = true)`
+
+Tất cả `ServiceImpl` đặt ở class-level để Hibernate tắt dirty-checking trên các hàm GET. Các hàm ghi override lại bằng `@Transactional` ở method-level.
+
+### 6. Chiến lược "xóa rồi lưu lại" trong submitAttendance
+
+```
+Nộp lần 1 → lưu N record
+Phát hiện nhầm → nộp lại lần 2
+→ deleteBySessionId() xóa N record cũ
+→ saveAll()          lưu N record mới
 ```
 
-**Không có annotation này:** lấy 10 Member → 10 câu SELECT riêng để lấy Guardian của từng Member = **11 câu query**.
-**Có annotation này:** Hibernate dùng `LEFT JOIN FETCH` → chỉ còn **1 câu query duy nhất**.
+Đảm bảo idempotency: kết quả cuối luôn là lần nộp gần nhất.
 
-### 3. @Transactional(readOnly = true)
+### 7. BCrypt password hashing
 
-Tất cả `ServiceImpl` đặt `@Transactional(readOnly = true)` ở class-level:
+Password không bao giờ lưu dạng plain text. `PasswordEncoder` (BCrypt) hash khi tạo user, và tự động so sánh khi đăng nhập qua `DaoAuthenticationProvider`.
 
-- Hibernate **tắt dirty-checking** (không theo dõi thay đổi entity) → tiết kiệm bộ nhớ và CPU
-- Các phương thức ghi dữ liệu override lại bằng `@Transactional` (không `readOnly`) ở method-level
-
-### 4. Constructor Injection với @RequiredArgsConstructor
-
-```java
-@RequiredArgsConstructor
-public class LeaderServiceImpl {
-    private final LeaderRepository leaderRepository; // final → Lombok tạo constructor
-}
-```
-
-Spring Boot khuyến khích **constructor injection** thay vì `@Autowired` trên field vì:
-- Dễ test hơn (có thể truyền mock vào constructor)
-- Phát hiện circular dependency tại lúc khởi động, không phải lúc runtime
-- Đảm bảo dependency không thể bị `null` sau khi object tạo xong
-
-### 5. Entity ID dùng UUID thay vì Long
+### 8. UUID thay vì Long cho ID
 
 ```java
 @UuidGenerator
 private UUID id;
 ```
 
-- Tránh lộ thông tin (client không đoán được `id=1, 2, 3...` để dò dẫm hệ thống)
-- Cho phép tạo ID ở phía ứng dụng mà không cần roundtrip DB
-- Phù hợp kiến trúc phân tán nếu sau này mở rộng nhiều server
-
-### 6. PostgreSQL Custom Enum Type và @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-
-Các enum dùng `@JdbcTypeCode(SqlTypes.NAMED_ENUM)` yêu cầu PostgreSQL phải có **custom type** tương ứng tồn tại sẵn. Hibernate `ddl-auto: update` **không tự tạo** các type này.
-
-```java
-// Entity sử dụng NAMED_ENUM
-@Enumerated(EnumType.STRING)
-@JdbcTypeCode(SqlTypes.NAMED_ENUM)        // ← yêu cầu type "branch" tồn tại trong PostgreSQL
-@Column(name = "nganh", nullable = false)
-private Branch division;
-```
-
-Nếu type chưa được tạo, Hibernate sẽ **không tạo cột đó** khi khởi động. INSERT/SELECT sau đó sẽ báo lỗi `column does not exist`. Fix: tạo thủ công theo hướng dẫn ở Bước 1.
-
-### 7. Chiến lược "xóa rồi lưu lại" trong submitAttendance
-
-```
-Nộp điểm danh lần 1 → lưu N record vào DB
-Phát hiện nhầm → nộp lại lần 2
-→ deleteBySessionId()  xóa toàn bộ N record cũ
-→ saveAll()            lưu N record mới chính xác
-```
-
-Đảm bảo idempotency: nộp bao nhiêu lần kết quả cuối cùng luôn là lần nộp gần nhất.
-
-### 8. @Valid lồng nhau trong List
-
-```java
-@Valid                              // ← bắt buộc phải có để validation đi sâu vào List
-@NotEmpty
-private List<AttendanceRecordSubmitDTO> records;
-```
-
-Nếu thiếu `@Valid` trên field List, các annotation như `@NotNull` bên trong từng phần tử sẽ bị bỏ qua hoàn toàn.
-
----
-
-## Lịch sử đổi tên (Vietnamese → English)
-
-Dự án ban đầu dùng tên tiếng Việt, sau đó đổi sang tiếng Anh cho nhất quán.
-Bảng tra cứu bên dưới giúp đối chiếu nếu cần tìm lại code cũ trong git history.
-
-<details>
-<summary>Xem bảng đổi tên đầy đủ</summary>
-
-### Enum
-
-| Tên cũ (VI) | Tên mới (EN) |
-|---|---|
-| `GioiTinh.NAM` | `Gender.MALE` |
-| `GioiTinh.NU` | `Gender.FEMALE` |
-| `MoiQuanHe.CHA` | `RelationshipType.FATHER` |
-| `MoiQuanHe.ME` | `RelationshipType.MOTHER` |
-| `MoiQuanHe.ONG_BA` | `RelationshipType.GRANDPARENT` |
-| `MoiQuanHe.NGUOI_GIAM_HO_KHAC` | `RelationshipType.OTHER_GUARDIAN` |
-| `Nganh.AU` | `Branch.INFANT` |
-| `Nganh.THIEU` | `Branch.JUNIOR` |
-| `Nganh.NGHIA` | `Branch.SENIOR` |
-| `Nganh.HIEP` | `Branch.ADVENTURER` |
-| `Nganh.CHIEN` | `Branch.SOLDIER` |
-| `Nganh.DU_TRUONG` | `Branch.JUNIOR_LEADER` |
-| `TrangThaiThieuNhi.DANG_HOC` | `MemberStatus.ACTIVE` |
-| `TrangThaiThieuNhi.TAM_NGHI` | `MemberStatus.ON_LEAVE` |
-| `TrangThaiThieuNhi.DA_NGHI` | `MemberStatus.INACTIVE` |
-| `TrangThaiThieuNhi.DA_TOT_NGHIEP` | `MemberStatus.GRADUATED` |
-| `NguonGocThieuNhi.DOAN_SINH_MOI` | `MemberOrigin.NEW_MEMBER` |
-| `NguonGocThieuNhi.CHUYEN_GIAO_XU` | `MemberOrigin.TRANSFERRED` |
-| `NguonGocThieuNhi.QUAY_LAI` | `MemberOrigin.RETURNING` |
-| `VaiTroHeThong.BAN_DIEU_HANH` | `SystemRole.EXECUTIVE_COMMITTEE` |
-| `VaiTroHeThong.TRUONG_NGANH` | `SystemRole.BRANCH_LEADER` |
-| `VaiTroHeThong.TRUONG_LOP` | `SystemRole.CLASS_LEADER` |
-| `VaiTroHeThong.HUYNH_TRUONG` | `SystemRole.GROUP_LEADER` |
-| `VaiTroHeThong.DU_TRUONG` | `SystemRole.JUNIOR_LEADER` |
-
-### Class & Field
-
-| Tên cũ (VI) | Tên mới (EN) |
-|---|---|
-| `ThieuNhi` | `Member` |
-| `hoVaTen` | `fullName` |
-| `tenThanh` | `saintName` |
-| `ngaySinh` | `dateOfBirth` |
-| `gioiTinh` | `gender` |
-| `diaChi` | `address` |
-| `soDienThoai` | `phoneNumber` |
-| `nganh` | `branch` |
-| `trangThai` | `status` |
-| `nguonGoc` | `origin` |
-| `ngayGiaNhap` | `enrollmentDate` |
-| `ghiChu` | `notes` |
-| `danhSachPhuHuynh` | `guardians` |
-| `PhuHuynh` | `Guardian` |
-| `moiQuanHe` | `relationship` |
-| `thieuNhi` | `member` |
-
-### API Endpoint
-
-| Cũ | Mới |
-|---|---|
-| `POST /api/v1/thieu-nhi` | `POST /api/v1/members` |
-| `GET /api/v1/thieu-nhi?trangThai=DANG_HOC` | `GET /api/v1/members?status=ACTIVE` |
-| `GET /api/v1/thieu-nhi/search?keyword=` | `GET /api/v1/members/search?keyword=` |
-
-</details>
+- Tránh lộ thông tin tuần tự (`id=1,2,3`)
+- Cho phép tạo ID phía ứng dụng không cần roundtrip DB
+- Phù hợp kiến trúc phân tán
