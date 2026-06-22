@@ -1,6 +1,7 @@
 package com.example.tntt_Manager.repository;
 
 import com.example.tntt_Manager.entity.Leader;
+import com.example.tntt_Manager.entity.enums.LeaderStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -39,4 +40,6 @@ public interface LeaderRepository extends JpaRepository<Leader, UUID> {
         nativeQuery = true
     )
     Page<Leader> searchLeaders(@Param("keyword") String keyword, Pageable pageable);
+
+    long countByStatus(LeaderStatus status);
 }

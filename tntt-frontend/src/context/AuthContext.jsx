@@ -26,7 +26,7 @@ export function AuthProvider({ children }) {
     const token = localStorage.getItem('accessToken');
     if (token && isTokenValid(token)) {
       const payload = decodeJwt(token);
-      setUser({ username: payload.sub });
+      setUser({ username: payload.sub, roles: payload.roles ?? [] });
       setIsAuthenticated(true);
     } else {
       localStorage.removeItem('accessToken');
@@ -35,7 +35,8 @@ export function AuthProvider({ children }) {
 
   function login(accessToken, userData = null) {
     localStorage.setItem('accessToken', accessToken);
-    const userInfo = userData ?? { username: decodeJwt(accessToken)?.sub };
+    const payload = decodeJwt(accessToken);
+    const userInfo = userData ?? { username: payload?.sub, roles: payload?.roles ?? [] };
     setUser(userInfo);
     setIsAuthenticated(true);
   }

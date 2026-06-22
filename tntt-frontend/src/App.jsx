@@ -6,6 +6,8 @@ import Dashboard from './pages/Dashboard';
 import Attendance from './pages/Attendance';
 import Students from './pages/Students';
 import StudentProgress from './pages/StudentProgress';
+import Classrooms from './pages/Classrooms';
+import Leaders from './pages/Leaders';
 
 export default function App() {
   return (
@@ -24,10 +26,12 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index              element={<Dashboard />}       />
-          <Route path="attendance"  element={<Attendance />}      />
-          <Route path="students"    element={<Students />}        />
-          <Route path="progress"    element={<StudentProgress />} />
+          <Route index               element={<Dashboard />}       />
+          <Route path="attendance"   element={<Attendance />}      />
+          <Route path="students"     element={<Students />}        />
+          <Route path="progress"     element={<StudentProgress />} />
+          <Route path="classrooms"   element={<Classrooms />}      />
+          <Route path="leaders"      element={<Leaders />}         />
         </Route>
 
         {/* Catch-all */}

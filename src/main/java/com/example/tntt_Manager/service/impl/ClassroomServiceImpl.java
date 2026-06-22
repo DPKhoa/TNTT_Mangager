@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +42,26 @@ public class ClassroomServiceImpl implements ClassroomService {
                 .stream()
                 .map(ClassroomResponseDTO::from)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public ClassroomResponseDTO updateClassroom(UUID id, ClassroomRequestDTO dto) {
+        Classroom classroom = classroomRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Classroom not found: " + id));
+        classroom.setClassName(dto.getClassName());
+        classroom.setAcademicYear(dto.getAcademicYear());
+        classroom.setDivision(dto.getDivision());
+        return ClassroomResponseDTO.from(classroomRepository.save(classroom));
+    }
+
+    @Override
+    @Transactional
+    public void deleteClassroom(UUID id) {
+        if (!classroomRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Classroom not found: " + id);
+        }
+        classroomRepository.deleteById(id);
     }
 
     @Override

@@ -1,19 +1,26 @@
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, ClipboardCheck, Users, TrendingUp, LogOut } from 'lucide-react';
+import {
+  LayoutDashboard, ClipboardCheck, Users, TrendingUp,
+  GraduationCap, Shield, LogOut,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const NAV_ITEMS = [
-  { to: '/',           label: 'Dashboard',    icon: LayoutDashboard, end: true },
-  { to: '/attendance', label: 'Điểm Danh',   icon: ClipboardCheck  },
-  { to: '/students',   label: 'Thiếu Nhi',   icon: Users           },
-  { to: '/progress',   label: 'Kết Quả',     icon: TrendingUp      },
+  { to: '/',           label: 'Dashboard',      icon: LayoutDashboard, end: true },
+  { to: '/attendance', label: 'Điểm Danh',     icon: ClipboardCheck  },
+  { to: '/students',   label: 'Thiếu Nhi',     icon: Users           },
+  { to: '/progress',   label: 'Kết Quả',       icon: TrendingUp      },
+  { to: '/classrooms', label: 'Lớp Học',        icon: GraduationCap   },
+  { to: '/leaders',    label: 'Huynh Trưởng',  icon: Shield          },
 ];
 
 const PAGE_TITLES = {
-  '/':           'Dashboard',
-  '/attendance': 'Điểm Danh',
-  '/students':   'Danh sách Thiếu Nhi',
-  '/progress':   'Kết Quả Học Tập',
+  '/':            'Dashboard',
+  '/attendance':  'Điểm Danh',
+  '/students':    'Danh sách Thiếu Nhi',
+  '/progress':    'Kết Quả Học Tập',
+  '/classrooms':  'Quản lý Lớp Học',
+  '/leaders':     'Quản lý Huynh Trưởng',
 };
 
 export default function MainLayout() {

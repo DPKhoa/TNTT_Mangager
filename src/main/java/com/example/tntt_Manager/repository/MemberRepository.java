@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -41,4 +42,9 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
      */
     @EntityGraph(attributePaths = "guardians")
     Page<Member> findByStatus(MemberStatus status, Pageable pageable);
+
+    long countByStatus(MemberStatus status);
+
+    @Query("SELECT m.branch, COUNT(m) FROM Member m WHERE m.status = :status GROUP BY m.branch")
+    List<Object[]> countByBranchAndStatus(@Param("status") MemberStatus status);
 }
